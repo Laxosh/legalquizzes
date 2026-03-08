@@ -350,8 +350,8 @@
             <h2 class="demo-section-title">Featured Practice Quizzes</h2>
             
             <!-- DEMO QUIZ 1: ENGLISH GRAMMAR 1 -->
-            <article class="demo-quiz-card" id="demo-quiz-1" data-quiz-id="basic-english-grammar-level-1.html">
-                <button class="demo-share-btn" title="Share this quiz" data-id="basic-english-grammar-level-1.html">🔗</button>
+            <article class="demo-quiz-card" id="demo-quiz-1" data-quiz-id="basic-english-grammar-level-1-quiz.html">
+                <button class="demo-share-btn" title="Share this quiz" data-id="basic-english-grammar-level-1-quiz.html">🔗</button>
                 <div class="demo-quiz-header">
                    <div class="card-icon" style="color:#4a90e2; font-size: 2.5em;">📝</div>
                    <h3 class="demo-quiz-title">Basic English Grammar - Level 1</h3>
@@ -2169,6 +2169,12 @@
             btn.disabled = false; 
         });
         
+        function parseHashParams() {
+            // Old function kept for logic, but we use search params now
+            const params = new URLSearchParams(window.location.search);
+            return params;
+        }
+        
         function handleBackNavigation(event) {
             if (activeQuizPlayer) { return; }
             const params = new URLSearchParams(window.location.search);
@@ -2279,17 +2285,20 @@
             (new initializePlayer(quizData)).start();
         }
 
-        // Check for Demo ID in query on load
-        function checkDemoQuery() {
+        // Check for Demo ID in hash on load
+        function checkDemoHash() {
             const params = new URLSearchParams(window.location.search);
             const quizId = params.get('quiz');
             
-            if(quizId && quizId.startsWith('basic-') || quizId.startsWith('parts-of-speech')) {
+            if(quizId) {
+                // 1. Check Static Demo
                 const card = document.querySelector(`.demo-quiz-card[data-quiz-id="${quizId}"]`);
                 if(card) {
                     playDemoQuiz(card);
                     return true;
                 }
+                // 2. Check Backend Deep Link (requires 'id' usually, but user wants slug)
+                // Handled in initialize_app
             }
             return false;
         }
@@ -2305,14 +2314,11 @@
             // --- Init Demo Quizzes Logic ---
             setupDemoQuizzes();
             
-            const params = getQueryParams();
-            
-            // Check for Demo Quiz launch first
-            if (params.has('quiz') && (params.get('quiz').startsWith('basic-') || params.get('quiz').startsWith('parts-of-speech'))) {
-                checkDemoQuery();
-                return;
-            }
+            // Check for Demo Hash FIRST
+            if(checkDemoHash()) return;
 
+            const params = new URLSearchParams(window.location.search);
+            
             // Handle Legal Section Scroll
             if (params.get('page') === 'about' && params.get('section')) {
                 activeTab = 'about';
@@ -2336,45 +2342,52 @@
                 return;
             }
 
-            // Backend Quiz Launch (using title slug)
+            // Backend Quiz Launch (using title slug + ID if available)
             if (params.get('quiz')) {
+                // If backend ID is present, prioritize fetching that
+                if(params.get('id') && params.get('source')) {
+                     startDeepLinkQuiz(params.get('id'), params.get('source'));
+                     return;
+                }
+                
+                // If only quiz slug is present, try to find it in index (requires preload)
                 loadingScreen.classList.remove('hidden');
                 document.getElementById('loading-text').textContent = "Finding Quiz...";
                 
+                // We need to fetch the big index to match slug -> ID
                 try {
                     const adminResponse = await apiCall('get_all_editor_data', {});
                     if(adminResponse.status === 'success') {
-                        globalHomeData = adminResponse.aggregatedData;
-                        flattenHomeData();
-                        indexDemoQuizzes();
-
+                        const allData = adminResponse.aggregatedData;
                         const targetSlug = params.get('quiz');
                         let foundQuiz = null;
                         
                         function searchForQuiz(items) {
                             if(!items) return;
                             for(const item of items) {
+                                // Match slug or ID (check for .html in slug)
                                 const itemSlug = generateSlug(item.name);
-                                if(itemSlug === targetSlug) {
+                                if(itemSlug === targetSlug || item.id === targetSlug) {
                                     foundQuiz = item;
                                     return;
                                 }
-                                if(item.type === 'folder' && item.items) searchForQuiz(item.items);
+                                if(item.type === 'folder') searchForQuiz(item.items);
                             }
                         }
                         searchForQuiz(allData.items);
                         
-                        if(foundQuiz && foundQuiz.backendSheetId) {
-                             startDeepLinkQuiz(foundQuiz.backendSheetId, foundQuiz.sourceBackend || localStorage.getItem('quiz_backend_url'));
+                        if(foundQuiz && foundQuiz.sourceBackend) {
+                             startDeepLinkQuiz(foundQuiz.backendSheetId, foundQuiz.sourceBackend);
                         } else {
                              alert("Quiz not found or it has been deleted.");
                              loadingScreen.classList.add('hidden');
+                             fetchHomeData();
                              showDashboard();
                         }
                     } else { throw new Error("Could not connect to database."); }
                 } catch(e) {
                     console.error(e);
-                    alert("Error finding quiz: " + e.message);
+                    alert("Error finding quiz.");
                     loadingScreen.classList.add('hidden');
                     showDashboard();
                 }
@@ -2382,10 +2395,9 @@
             else { 
                 await fetchHomeData();
                 const page = params.get('page');
-                if (page === 'dashboard') { activeTab = 'dashboard'; }
-                else if (page === 'about') { activeTab = 'about'; }
-                else if (page === 'search') { activeTab = 'search'; }
-                else { activeTab = 'home'; } // Default to home
+                if(page === 'about') { activeTab = 'about'; }
+                else if(page === 'search') { activeTab = 'search'; }
+                else if(page === 'dashboard') { activeTab = 'dashboard'; } // EXPLICIT FIX
                 showDashboard(); 
             } 
         }
@@ -2394,6 +2406,7 @@
             loadingScreen.classList.remove('hidden');
             document.getElementById('loading-text').textContent = "Loading Quiz...";
             
+            // Set URL State to clean slug
             const quizData = await fetchBackendQuizData(quizId, sourceUrl);
             if (quizData) {
                 const adStatusResult = await apiCall('get_quiz_ad_status', { sourceBackendUrl: sourceUrl });
@@ -2440,13 +2453,13 @@
             results.forEach(item => {
                 const itemEl = document.createElement('div');
                 itemEl.className = 'dashboard-item';
-                
+                // ... (code to build itemEl is the same as renderDashboard, can be refactored)
                 const displayName = item.name || "Untitled"; 
                 let badgeHTML = (item.editorUsername) ? `<span class="editor-badge">By: ${item.editorUsername}</span>` : '';
                 let tagsHTML = '';
                 if(item.type === 'quiz' || item.type === 'demo-quiz') {
                     let idStr = item.id;
-                    if(idStr.length > 20) idStr = idStr.substring(0,18) + '...';
+                    if(idStr.length > 10) idStr = idStr.substring(0,8) + '...';
                     let subjectTag = item.subject ? `<span class="tag-badge subject">${item.subject}</span>` : '';
                     let diffTag = item.difficulty ? `<span class="tag-badge difficulty">${item.difficulty}</span>` : '';
                     let timeTag = item.timeLimit ? `<span class="item-time">⏱️ ${item.timeLimit}m</span>` : '';
