@@ -350,8 +350,8 @@
             <h2 class="demo-section-title">Featured Practice Quizzes</h2>
             
             <!-- DEMO QUIZ 1: ENGLISH GRAMMAR 1 -->
-            <article class="demo-quiz-card" id="demo-quiz-1" data-quiz-id="basic-english-grammar-level-1.html">
-                <button class="demo-share-btn" title="Share this quiz" data-id="basic-english-grammar-level-1.html">🔗</button>
+            <article class="demo-quiz-card" id="demo-quiz-1" data-quiz-id="basic-english-grammar-level-1-quiz.html">
+                <button class="demo-share-btn" title="Share this quiz" data-id="basic-english-grammar-level-1-quiz.html">🔗</button>
                 <div class="demo-quiz-header">
                    <div class="card-icon" style="color:#4a90e2; font-size: 2.5em;">📝</div>
                    <h3 class="demo-quiz-title">Basic English Grammar - Level 1</h3>
@@ -797,10 +797,10 @@
             const url = new URL(window.location);
             url.searchParams.set('quiz', slug);
             
-            // If backend sheet, attach ID as secondary param for fetch
-            if(playState.backendSheetId) {
-                url.searchParams.set('id', playState.backendSheetId);
-            }
+            // REMOVE THE ID from the visible URL
+            // (Note: The App will now rely on lookup by slug)
+            url.searchParams.delete('id');
+            url.searchParams.delete('source');
             
             history.pushState({ quizActive: true, quizId: quizId }, "", url);
             activeQuizPlayer = this;
@@ -1155,19 +1155,22 @@
             // Update URL State
             const url = new URL(window.location);
             url.searchParams.delete('quiz'); 
+            // CLEAN UP: Remove ID and Source if we are navigating away from a quiz
             url.searchParams.delete('id');
+            url.searchParams.delete('source');
             
             if (activeTab === 'about') {
                 url.searchParams.set('page', 'about');
             } else if (activeTab === 'search') {
                 url.searchParams.set('page', 'search');
-            } else {
-                // If on Home, we don't need 'page=home' in URL, looks cleaner
-                if(activeTab === 'home') url.searchParams.delete('page');
-                else url.searchParams.set('page', activeTab);
-
+            } else if (activeTab === 'dashboard') {
+                url.searchParams.set('page', 'dashboard');
                 if (currentPath.length > 0) url.searchParams.set('path', currentPath.join(','));
                 else url.searchParams.delete('path');
+            } else {
+                // Home: Clean URL
+                url.searchParams.delete('page');
+                url.searchParams.delete('path');
             }
             
             // Avoid creating dup history entry if same state
@@ -1377,9 +1380,7 @@
                     const quiz = item; 
                     const slug = generateSlug(quiz.name);
                     shareQuery = `?quiz=${slug}`;
-                    if(quiz.backendSheetId) { 
-                        shareQuery += `&id=${quiz.backendSheetId}`;
-                    }
+                    // HIDDEN ID LOGIC: Only quiz slug in link now
                 } 
                 const fullShareURL = baseUrl + shareQuery; 
                 if(navigator.share) { navigator.share({ title: "Quiz Link", text: `Take this quiz!`, url: fullShareURL }).catch(console.error); } else { navigator.clipboard.writeText(fullShareURL).then(() => alert(`Link copied!\n\n${fullShareURL}`)); } 
@@ -2187,6 +2188,7 @@
                 const page = params.get('page');
                 if(page === 'about') activeTab = 'about';
                 else if(page === 'search') activeTab = 'search';
+                else if(page === 'dashboard') activeTab = 'dashboard'; // Explicit fix
                 else activeTab = 'home';
             }
             showDashboard();
@@ -2396,6 +2398,7 @@
                 const page = params.get('page');
                 if(page === 'about') { activeTab = 'about'; }
                 else if(page === 'search') { activeTab = 'search'; }
+                else if(page === 'dashboard') { activeTab = 'dashboard'; } // EXPLICIT FIX
                 showDashboard(); 
             } 
         }
@@ -2417,8 +2420,9 @@
                 const slug = generateSlug(quizData.quizTitle);
                 const url = new URL(window.location);
                 url.searchParams.set('quiz', slug);
-                url.searchParams.set('id', quizId); // Keep ID for reference
-                url.searchParams.set('source', sourceUrl);
+                // REMOVE ID from visible URL once loaded
+                url.searchParams.delete('id'); 
+                url.searchParams.delete('source');
                 window.history.replaceState(null, null, url);
 
                 (new initializePlayer(quizData)).start(); 
